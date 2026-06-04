@@ -149,7 +149,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot" id="liveDot"></span>LogicLab <small id="ver">v2.2</small></div>
+  <div class="brand"><span class="dot" id="liveDot"></span>LogicLab <small id="ver">v2.3</small></div>
   <div class="tools">
     <div class="btn power" id="powerBtn"><span class="ring"></span><span id="powerTxt">POWER</span></div>
     <div class="btn" id="pauseBtn" title="Pause / resume the auto clock">❚❚</div>
@@ -794,7 +794,12 @@ window.addEventListener("mouseup",e=>{
 
 function completeWire(cid,pin){
   if(!wiring){return;}
-  // feedback allowed: a component's own output may drive its input (e.g. Q'->D toggle, ripple counters)
+  // self-feedback (a component's own output to its own input) is only meaningful for flip-flops,
+  // whose output is held state. Gates would form a combinational oscillation, so block those.
+  if(wiring.from.c===cid){
+    const tc=compById(cid);
+    if(!tc || DEFS[tc.type].kind!=="ff"){ wiring=null; sheet.classList.remove("wiring"); render(); return; }
+  }
   wires=wires.filter(w=>!(w.to.c===cid&&w.to.p===pin));   // one wire per input pin
   wires.push({id:nextId++, from:{c:wiring.from.c,p:wiring.from.p}, to:{c:cid,p:pin}, points:wiring.points.slice()});
   wiring=null; sheet.classList.remove("wiring");
