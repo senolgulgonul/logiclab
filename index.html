@@ -153,7 +153,7 @@
   <div class="tools">
     <div class="btn power" id="powerBtn"><span class="ring"></span><span id="powerTxt">POWER</span></div>
     <div class="btn" id="pauseBtn" title="Pause / resume the auto clock">❚❚</div>
-    <div class="btn" id="stepBtn" title="Advance the clock by one half-cycle (one edge). Pause the clock first to step through manually.">STEP ▸</div>
+    <div class="btn" id="stepBtn" title="Advance the clock by one full cycle (rising edge to rising edge). Pause the clock first to step through manually.">STEP ▸</div>
     <div class="btn" id="rotateBtn" title="Rotate selected component 90°">↻</div>
     <div class="btn" id="saveBtn" title="Save circuit to a file">SAVE</div>
     <div class="btn" id="openBtn" title="Open a saved circuit">OPEN</div>
@@ -181,7 +181,7 @@
       <li><b>Pan</b>: hold <b>Shift</b> and drag, or drag with the middle mouse button to pan the sheet.</li>
       <li><b>Power</b>: energize the circuit. Wires turn green for 1, grey for 0.</li>
       <li><b>Inputs</b>: click an IN switch to toggle it — at any moment, including mid clock-cycle.</li>
-      <li><b>Clock</b>: the CLK part runs automatically; set speed with the slider. <b>Pause</b> (❚❚) stops it; <b>STEP</b> then advances one half-cycle (one edge) at a time.</li>
+      <li><b>Clock</b>: the CLK part runs automatically; set speed with the slider. <b>Pause</b> (❚❚) stops it; <b>STEP</b> then advances one full clock cycle (rising edge to rising edge) at a time.</li>
       <li><b>Flip-flops</b> sample their inputs on the rising clock edge.</li>
       <li><b>Move / delete</b>: drag a part to move; select it (or a wire) and press Delete. Esc cancels.</li>
       <li><b>Timing panel</b> traces clocks, inputs, flip-flop Q and outputs over time.</li>
