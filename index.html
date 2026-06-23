@@ -156,7 +156,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot" id="liveDot"></span>LogicLab <small id="ver">v2.10</small></div>
+  <div class="brand"><span class="dot" id="liveDot"></span>LogicLab <small id="ver">v2.11</small></div>
   <div class="tools">
     <div class="btn power" id="powerBtn"><span class="ring"></span><span id="powerTxt">POWER</span></div>
     <div class="btn" id="pauseBtn" title="Pause / resume the auto clock">❚❚</div>
@@ -164,6 +164,7 @@
     <div class="btn" id="rotateBtn" title="Rotate selected component 90°">↻</div>
     <div class="btn" id="saveBtn" title="Save circuit to a file">SAVE</div>
     <div class="btn" id="openBtn" title="Open a saved circuit">OPEN</div>
+    <div class="btn" id="loadUrlBtn" title="Load a circuit from a GitHub raw JSON link or a URL">LOAD URL</div>
     <div class="btn" id="examplesBtn" title="Load an example circuit">EXAMPLES ▾</div>
     <div class="btn" id="clearBtn" title="Delete everything">CLEAR</div>
     <input type="file" id="fileInput" accept=".json,.logiclab,application/json" style="display:none">
@@ -199,6 +200,7 @@
       <li><b>Move / delete</b>: drag a part to move; select it (or a wire) and press Delete. Esc cancels.</li>
       <li><b>Timing panel</b> traces clocks, inputs, flip-flop Q and outputs over time.</li>
       <li><b>Save / Open</b>: SAVE downloads the circuit as a <code>.json</code> file; OPEN loads one back.</li>
+      <li><b>Load URL</b>: loads a circuit straight from a link. Use a GitHub <i>raw</i> link (<code>raw.githubusercontent.com/...</code>) or a path on this site; a normal <code>github.com</code> file page is converted to its raw link automatically. You can also share a direct link by opening the app with <code>?circuit=&lt;url&gt;</code>, which auto-loads that circuit.</li>
     </ul>
   </div>
 </div>
@@ -1178,6 +1180,38 @@ fileInput.onchange=e=>{
   reader.readAsText(f);
   fileInput.value="";   // let the same file be re-opened later
 };
+/* ---- load a circuit from a URL (GitHub raw, a github.com file page, or a same-site path) ---- */
+function rawGithubUrl(u){
+  try{
+    const url=new URL(u, location.href);
+    if(url.hostname==="github.com"){
+      // turn /user/repo/blob/branch/path.json into a raw.githubusercontent.com link
+      const m=url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/(.+)$/);
+      if(m) return "https://raw.githubusercontent.com/"+m[1]+"/"+m[2]+"/"+m[3];
+    }
+    return url.href;
+  }catch(_){ return u; }
+}
+async function loadFromUrl(u){
+  const url=rawGithubUrl(String(u||"").trim());
+  if(!url) return;
+  try{
+    const res=await fetch(url,{cache:"no-store"});
+    if(!res.ok) throw new Error("server returned HTTP "+res.status);
+    const obj=await res.json();
+    viewScale=1; viewX=0; viewY=0;
+    loadCircuit(obj);          // throws if the JSON is not a LogicLab circuit
+  }catch(err){
+    const msg=(err && err.message) ? err.message : String(err);
+    alert("Could not load a circuit from that URL.\n\n"+msg+
+      "\n\nUse a raw file link (raw.githubusercontent.com/...) or a path on this same site. "+
+      "The file must be a LogicLab JSON circuit, and the host must allow cross-origin requests.");
+  }
+}
+document.getElementById("loadUrlBtn").onclick=()=>{
+  const u=prompt("Load circuit from a URL\n(GitHub raw link, a github.com file page, or a path on this site):","");
+  if(u) loadFromUrl(u);
+};
 document.getElementById("clkRate").oninput=e=>{
   document.getElementById("clkHz").textContent=e.target.value+" Hz";
   if(powered) startClock();
@@ -1373,6 +1407,11 @@ render();
 updateStatus();
 updatePauseBtn();
 window.addEventListener("resize",render);
+/* shareable links: open the app with ?circuit=<url-encoded link> to auto-load that circuit */
+(function(){
+  const q=new URLSearchParams(location.search).get("circuit");
+  if(q) loadFromUrl(q);
+})();
 </script>
 </body>
 </html>
