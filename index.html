@@ -106,9 +106,16 @@
   .ff-label{font-family:'IBM Plex Mono',monospace;font-size:10px;fill:var(--ink);pointer-events:none;font-weight:500}
   text{user-select:none}
   /* ---------- timing panel ---------- */
-  .timing{background:#f1f0ea;border-top:1px solid var(--grid-strong);height:196px;display:flex;flex-direction:column;flex-shrink:0;transition:height .15s}
+  .timing{background:#f1f0ea;border-top:1px solid var(--grid-strong);height:var(--tl-h,196px);display:flex;flex-direction:column;flex-shrink:0;transition:height .15s}
   .timing.collapsed{height:35px}
   .timing.collapsed .timing-body{display:none}
+  .timing.collapsed .tl-resize{display:none}
+  /* drag this strip up/down to resize the panel height */
+  .tl-resize{height:8px;flex-shrink:0;cursor:ns-resize;display:flex;align-items:center;justify-content:center;
+    background:#e7e5dd;border-bottom:1px solid var(--grid-strong);touch-action:none}
+  .tl-resize::before{content:"";width:36px;height:3px;border-radius:2px;background:#c2c0b6}
+  .tl-resize:hover{background:#dedcd2}
+  .tl-resize:hover::before{background:#a7a59a}
   .timing-head{height:35px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 12px;
     border-bottom:1px solid var(--grid-strong);font-family:'IBM Plex Mono',monospace;font-size:11px;
     letter-spacing:1px;text-transform:uppercase;color:#7e7d72;font-weight:600}
@@ -149,7 +156,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot" id="liveDot"></span>LogicLab <small id="ver">v2.6</small></div>
+  <div class="brand"><span class="dot" id="liveDot"></span>LogicLab <small id="ver">v2.10</small></div>
   <div class="tools">
     <div class="btn power" id="powerBtn"><span class="ring"></span><span id="powerTxt">POWER</span></div>
     <div class="btn" id="pauseBtn" title="Pause / resume the auto clock">❚❚</div>
@@ -185,6 +192,10 @@
       <li><b>Clock</b>: the CLK part runs automatically; set speed with the slider. <b>Pause</b> (❚❚) stops it; <b>STEP</b> then advances one full clock cycle (rising edge to rising edge) at a time.</li>
       <li><b>Flip-flops</b> sample their inputs on the rising clock edge.</li>
       <li><b>LUT4</b>: a 4-input / 1-output lookup table. Double-click it to set the 16-bit truth table as hex (e.g. <code>0x0FF0</code>). Output = bit <i>n</i> of that value, where <i>n</i> = I3 I2 I1 I0 and I0 is the LSB.</li>
+      <li><b>Bus blocks</b>: every multi-bit port is broken into single-bit pins, LSB first (<code>A0</code> is the least significant). Wire one bit per pin. When powered, each block shows a live value readout on its face.</li>
+      <li><b>MUX 2:1</b>: <code>Y = S ? I1 : I0</code>. <b>Decoder 4:16</b>: exactly one of <code>Y0..Y15</code> is high, selected by the address (<i>n</i> = A3 A2 A1 A0, A0 the LSB). <b>ALU 4-bit</b>: <code>M=0</code> computes <code>A+B</code>, <code>M=1</code> computes <code>A-B</code> (as <code>A + ~B + 1</code>); <code>Co</code> is the carry out of bit 3 (on subtract, <code>Co=1</code> means no borrow, i.e. A &ge; B).</li>
+      <li><b>Register 4-bit</b>: on the rising clock edge it loads <code>D0..D3</code> into <code>Q0..Q3</code> when <code>EN</code> is high, otherwise it holds its value. <b>Counter 4-bit</b>: a free-running up counter that increments on every rising clock edge and wraps from 15 back to 0.</li>
+      <li><b>ROM 16x8 / RAM 16x8</b>: 4-bit address <code>A0..A3</code>, 8-bit data. Reads are combinational (the addressed byte is always present on the outputs). RAM writes <code>D0..D7</code> into the addressed cell on the rising clock edge when <code>WE</code> (write enable) is high. Double-click either block to edit its contents as 16 hex bytes (address 0 first).</li>
       <li><b>Move / delete</b>: drag a part to move; select it (or a wire) and press Delete. Esc cancels.</li>
       <li><b>Timing panel</b> traces clocks, inputs, flip-flop Q and outputs over time.</li>
       <li><b>Save / Open</b>: SAVE downloads the circuit as a <code>.json</code> file; OPEN loads one back.</li>
@@ -200,6 +211,7 @@
 </div>
 
 <div class="timing collapsed" id="timing">
+  <div class="tl-resize" id="tlResize" title="Drag up or down to resize"></div>
   <div class="timing-head">
     <span>▦ Timing</span>
     <span class="tl-info" id="tlInfo"></span>
@@ -235,12 +247,43 @@ const DEFS = {
   JKFF:  {label:"JK", kind:"ff",    w:78,h:80, ins:["J","C","K"], outs:["Q","Q'"]},
   TFF:   {label:"T",  kind:"ff",    w:78,h:62, ins:["T","C"], outs:["Q","Q'"]},
   LUT4:  {label:"LUT4",kind:"lut",  w:72,h:72, ins:["I0","I1","I2","I3"], outs:["Y"]},
+  // ---- MSI / bus blocks (each bus is split into single-bit pins, LSB first) ----
+  MUX2:  {label:"MUX 2:1", kind:"chip", w:72, h:64,
+          ins:["I0","I1","S"], outs:["Y"]},
+  DEC4:  {label:"Decoder 4:16", kind:"chip", w:90, h:280,
+          ins:["A0","A1","A2","A3"],
+          outs:["Y0","Y1","Y2","Y3","Y4","Y5","Y6","Y7","Y8","Y9","Y10","Y11","Y12","Y13","Y14","Y15"]},
+  ALU4:  {label:"ALU 4-bit", kind:"chip", w:98, h:160,
+          ins:["A0","A1","A2","A3","B0","B1","B2","B3","M"],
+          outs:["S0","S1","S2","S3","Co"]},
+  REG4:  {label:"Register 4-bit", kind:"seqchip", w:90, h:112,
+          ins:["D0","D1","D2","D3","EN","C"], outs:["Q0","Q1","Q2","Q3"]},
+  CNT4:  {label:"Counter 4-bit", kind:"seqchip", w:92, h:104,
+          ins:["C"], outs:["Q0","Q1","Q2","Q3"]},
+  ROM8:  {label:"ROM 16x8", kind:"chip", w:92, h:152,
+          ins:["A0","A1","A2","A3"],
+          outs:["D0","D1","D2","D3","D4","D5","D6","D7"]},
+  RAM8:  {label:"RAM 16x8", kind:"seqchip", w:110, h:248,
+          ins:["A0","A1","A2","A3","D0","D1","D2","D3","D4","D5","D6","D7","WE","C"],
+          outs:["Q0","Q1","Q2","Q3","Q4","Q5","Q6","Q7"]},
+};
+// short face labels + value-readout metadata for the chip renderer
+const CHIPMETA = {
+  MUX2:{name:"MUX",  sub:"2\u21921"},
+  DEC4:{name:"DEC",  sub:"4\u219216"},
+  ALU4:{name:"ALU",  sub:"+ / \u2212"},
+  REG4:{name:"REG",  sub:"4-bit"},
+  CNT4:{name:"CNT",  sub:"4-bit up"},
+  ROM8:{name:"ROM",  sub:"16\u00d78"},
+  RAM8:{name:"RAM",  sub:"16\u00d78"},
 };
 const PALETTE = [
   {group:"I / O", items:["SWITCH","CLOCK","ONE","ZERO","LED"]},
   {group:"Gates", items:["NOT","AND","OR","NAND","NOR","XOR","XNOR"]},
   {group:"Flip-Flops", items:["DFF","JKFF","TFF"]},
   {group:"Lookup Table", items:["LUT4"]},
+  {group:"MSI Blocks", items:["MUX2","DEC4","ALU4"]},
+  {group:"Registers / Memory", items:["REG4","CNT4","ROM8","RAM8"]},
 ];
 
 /* ---------------- state ---------------- */
@@ -276,6 +319,7 @@ function leadLen(c,kind){
   const k=DEFS[c.type].kind;
   if(k==="ff") return kind==="out"?12:9;
   if(k==="lut") return 10;
+  if(k==="chip"||k==="seqchip") return 10;
   if(k==="input"||k==="output") return 8;
   return 0;
 }
@@ -341,6 +385,45 @@ function parseHex16(s){
   return parseInt(s,16)&0xFFFF;
 }
 function hex16(v){ return "0x"+((v||0)&0xFFFF).toString(16).toUpperCase().padStart(4,"0"); }
+function hexByte(v){ return "0x"+((v|0)&0xFF).toString(16).toUpperCase().padStart(2,"0"); }
+// assemble an integer from `width` consecutive input pins starting at `start` (LSB = lowest pin)
+function busVal(c,start,width){ let v=0; for(let i=0;i<width;i++){ if(inVal(c,start+i)) v|=(1<<i); } return v; }
+// spread an integer over `width` output bits (LSB first)
+function bitsOut(v,width){ const a=[]; for(let i=0;i<width;i++) a.push(((v>>i)&1)===1); return a; }
+// read back an integer from a component's already-settled output pins
+function outInt(c,start,width){ let v=0; const o=c.out||[]; for(let i=0;i<width;i++){ if(o[start+i]) v|=(1<<i); } return v; }
+// parse up to 16 hex bytes ("0A 1F .." / "0a,1f,.." / 32 continuous hex digits) -> 16-byte array, or null
+function parseMem(s){
+  if(s==null) return null;
+  const compact=String(s).replace(/\s/g,"");
+  let toks;
+  if(/^[0-9a-fA-F]{2,32}$/.test(compact) && compact.length%2===0 && !/[,]/.test(s)){
+    toks=[]; for(let i=0;i<compact.length;i+=2) toks.push(compact.slice(i,i+2));
+  } else {
+    toks=String(s).split(/[\s,]+/).filter(Boolean);
+  }
+  if(toks.length===0 || toks.length>16) return null;
+  const out=new Array(16).fill(0);
+  for(let i=0;i<toks.length;i++){
+    const t=toks[i].replace(/^0x/i,"");
+    if(!/^[0-9a-fA-F]{1,2}$/.test(t)) return null;
+    out[i]=parseInt(t,16)&0xFF;
+  }
+  return out;
+}
+function memToStr(mem){ return (mem||[]).map(b=>((b|0)&0xFF).toString(16).toUpperCase().padStart(2,"0")).join(" "); }
+// runtime state defaults for stateful parts (carries existing values from `src` when reloading)
+function defState(type, src){
+  src=src||{}; const s={};
+  if(type==="REG4") s.reg=(src.reg|0)&15;
+  else if(type==="CNT4") s.cnt=(src.cnt|0)&15;
+  else if(type==="ROM8"||type==="RAM8"){
+    const m=(Array.isArray(src.mem)?src.mem.slice(0,16):[]).map(b=>(b|0)&0xFF);
+    while(m.length<16) m.push(0);
+    s.mem=m;
+  }
+  return s;
+}
 // output of an input-kind part: constants are fixed, everything else follows its on flag
 function inputOut(c){ return c.type==="ONE"?[true] : c.type==="ZERO"?[false] : [!!c.on]; }
 function inVal(c, p){
@@ -366,6 +449,29 @@ function settle(){
         const addr=(i3?8:0)|(i2?4:0)|(i1?2:0)|(i0?1:0);   // I0 = LSB of the address
         out=[ (((c.init||0)>>addr)&1)===1 ];
       }
+      else if(c.type==="MUX2"){
+        out=[ inVal(c,2) ? inVal(c,1) : inVal(c,0) ];      // S selects I1, else I0
+      }
+      else if(c.type==="DEC4"){
+        const addr=busVal(c,0,4);
+        out=new Array(16).fill(false); out[addr]=true;        // active-high one-hot output
+      }
+      else if(c.type==="ALU4"){
+        const a=busVal(c,0,4), b=busVal(c,4,4), m=inVal(c,8);
+        const opb = m ? ((~b)&15) : b, cin = m?1:0;          // M=0 add, M=1 subtract (A + ~B + 1)
+        const t=a+opb+cin;
+        out=bitsOut(t&15,4); out.push(((t>>4)&1)===1);        // Co = carry out of bit 3
+      }
+      else if(c.type==="ROM8"){
+        const addr=busVal(c,0,4); out=bitsOut((c.mem&&c.mem[addr])||0,8);
+      }
+      else if(c.type==="RAM8"){
+        const addr=busVal(c,0,4); out=bitsOut((c.mem&&c.mem[addr])||0,8); // read is combinational
+      }
+      else if(c.type==="REG4"){ out=bitsOut(c.reg||0,4); }    // held; loaded on edge
+      else if(c.type==="CNT4"){
+        out=bitsOut(c.cnt||0,4);                              // free-running 4-bit up counter
+      }
       else { // gate
         const a=inVal(c,0);
         const b=d.ins.length>1?inVal(c,1):false;
@@ -381,13 +487,35 @@ function settle(){
 // detect rising clock edges on flip-flops, update stored Q
 function applyEdges(){
   for(const c of comps){
-    if(DEFS[c.type].kind!=="ff") continue;
-    let clk;
-    if(c.type==="DFF"){ const D=inVal(c,0); clk=inVal(c,1); if(clk&&!c.lastClk) c.q=D; }
-    else if(c.type==="TFF"){ const T=inVal(c,0); clk=inVal(c,1); if(clk&&!c.lastClk&&T) c.q=!c.q; }
-    else { const J=inVal(c,0); clk=inVal(c,1); const K=inVal(c,2);
-      if(clk&&!c.lastClk){ if(J&&K) c.q=!c.q; else if(J) c.q=true; else if(K) c.q=false; } }
-    c.lastClk=clk;
+    const k=DEFS[c.type].kind;
+    if(k==="ff"){
+      let clk;
+      if(c.type==="DFF"){ const D=inVal(c,0); clk=inVal(c,1); if(clk&&!c.lastClk) c.q=D; }
+      else if(c.type==="TFF"){ const T=inVal(c,0); clk=inVal(c,1); if(clk&&!c.lastClk&&T) c.q=!c.q; }
+      else { const J=inVal(c,0); clk=inVal(c,1); const K=inVal(c,2);
+        if(clk&&!c.lastClk){ if(J&&K) c.q=!c.q; else if(J) c.q=true; else if(K) c.q=false; } }
+      c.lastClk=clk;
+    }
+    else if(k==="seqchip"){
+      if(c.type==="REG4"){
+        const clk=inVal(c,5);                                // pins: D0..D3, EN, C
+        if(clk&&!c.lastClk && inVal(c,4)) c.reg=busVal(c,0,4); // load D0..D3 only when EN high
+        c.lastClk=clk;
+      }
+      else if(c.type==="CNT4"){
+        const clk=inVal(c,0);
+        if(clk&&!c.lastClk) c.cnt=((c.cnt||0)+1)&15;         // free-running up counter
+        c.lastClk=clk;
+      }
+      else if(c.type==="RAM8"){
+        const clk=inVal(c,13);
+        if(clk&&!c.lastClk && inVal(c,12)){                  // write on rising edge when WE
+          if(!c.mem) c.mem=new Array(16).fill(0);
+          c.mem[busVal(c,0,4)]=busVal(c,4,8);
+        }
+        c.lastClk=clk;
+      }
+    }
   }
 }
 function evaluate(){
@@ -691,6 +819,42 @@ function drawLUT(g,c,stroke,sw){
     fill:"var(--accent)","font-weight":600}); val.textContent=hex16(c.init); g.appendChild(val);
 }
 
+/* ---- generic MSI / register / memory block ---- */
+function chipValue(c){
+  switch(c.type){
+    case "REG4": return "Q="+outInt(c,0,4);
+    case "CNT4": return "Q="+outInt(c,0,4);
+    case "DEC4": { const o=c.out||[]; const i=o.findIndex(Boolean); return i<0?"Y none":("Y"+i); }
+    case "MUX2": return "Y="+(c.out&&c.out[0]?1:0);
+    case "ALU4": return "S="+outInt(c,0,4)+" Co"+(c.out&&c.out[4]?1:0);
+    case "ROM8": return "D="+hexByte(outInt(c,0,8));
+    case "RAM8": return "Q="+hexByte(outInt(c,0,8));
+  }
+  return "";
+}
+function drawChip(g,c,stroke,sw){
+  const d=DEFS[c.type], x=-d.w/2,y=-d.h/2,w=d.w,h=d.h;
+  g.appendChild(el("rect",{x,y,width:w,height:h,rx:4,fill:"var(--comp-fill)",stroke,"stroke-width":sw}));
+  d.ins.forEach((nm,i)=>{ const p=localPinPos(c,"in",i);
+    g.appendChild(el("line",{x1:p.x,y1:p.y,x2:x,y2:p.y,stroke,"stroke-width":WLINE}));
+    const t=el("text",{x:x+5,y:p.y+3.4,"text-anchor":"start","font-family":"'IBM Plex Mono'","font-size":8.5,fill:"#2a2e35"});
+    t.textContent=nm; g.appendChild(t);
+  });
+  d.outs.forEach((nm,i)=>{ const p=localPinPos(c,"out",i);
+    g.appendChild(el("line",{x1:x+w,y1:p.y,x2:p.x,y2:p.y,stroke,"stroke-width":WLINE}));
+    const t=el("text",{x:x+w-5,y:p.y+3.4,"text-anchor":"end","font-family":"'IBM Plex Mono'","font-size":8.5,fill:"#2a2e35"});
+    t.textContent=nm; g.appendChild(t);
+  });
+  const meta=CHIPMETA[c.type]||{name:c.type,sub:""};
+  const t1=el("text",{x:0,y:-3,"text-anchor":"middle",class:"comp-label","font-size":13,"font-weight":700});
+  t1.textContent=meta.name; g.appendChild(t1);
+  if(meta.sub){ const t2=el("text",{x:0,y:11,"text-anchor":"middle","font-family":"'IBM Plex Mono'","font-size":9,fill:"#5a5f68"});
+    t2.textContent=meta.sub; g.appendChild(t2); }
+  if(powered){ const v=chipValue(c);
+    if(v){ const t3=el("text",{x:0,y:27,"text-anchor":"middle","font-family":"'IBM Plex Mono'","font-size":11,"font-weight":700,fill:"var(--accent)"});
+      t3.textContent=v; g.appendChild(t3); } }
+}
+
 function renderComp(c){
   const d=DEFS[c.type];
   const g=el("g",{"data-role":"comp","data-id":c.id,style:"cursor:grab",transform:`translate(${c.x} ${c.y}) rotate(${c.rot||0})`});
@@ -724,6 +888,9 @@ function renderComp(c){
   }
   else if(d.kind==="lut"){
     drawLUT(g,c,stroke,sw);
+  }
+  else if(d.kind==="chip"||d.kind==="seqchip"){
+    drawChip(g,c,stroke,sw);
   }
   else { // gate — Mano/ANSI distinctive shape
     drawGate(g,c,stroke,sw);
@@ -885,7 +1052,7 @@ function completeWire(cid,pin){
   evaluate(); render();
 }
 function placeComp(type,x,y){
-  comps.push({id:nextId++,type,x:snapGrid(x),y:snapGrid(y),rot:0,on:false,target:false,init:0,out:[],q:false,lastClk:false});
+  comps.push({id:nextId++,type,x:snapGrid(x),y:snapGrid(y),rot:0,on:false,target:false,init:0,out:[],q:false,lastClk:false,...defState(type,{})});
   evaluate(); render();
 }
 function deleteSelected(){
@@ -926,7 +1093,8 @@ function ioIcon(type){
 }
 function ffIcon(){return `<svg width="30" height="18"><rect x="6" y="2" width="16" height="14" rx="1.5" fill="#d6e4f3" stroke="#1c1f26" stroke-width="1.2"/><path d="M6 8 l4 2 l-4 2" fill="none" stroke="#1c1f26" stroke-width="1.1"/></svg>`;}
 function lutIcon(){return `<svg width="30" height="18"><rect x="5" y="2" width="20" height="14" rx="2" fill="#eef3fb" stroke="#1c1f26" stroke-width="1.3"/><text x="15" y="12" font-family="IBM Plex Mono" font-size="7" font-weight="600" text-anchor="middle" fill="#1c1f26">LUT</text></svg>`;}
-function iconFor(type){const k=DEFS[type].kind;if(k==="ff")return ffIcon();if(k==="lut")return lutIcon();if(k==="gate")return gateIcon(type);return ioIcon(type);}
+function chipIcon(short){return `<svg width="30" height="18"><rect x="4" y="2" width="22" height="14" rx="2" fill="#eef3fb" stroke="#1c1f26" stroke-width="1.3"/><text x="15" y="12" font-family="IBM Plex Mono" font-size="6.5" font-weight="600" text-anchor="middle" fill="#1c1f26">${short}</text></svg>`;}
+function iconFor(type){const k=DEFS[type].kind;if(k==="ff")return ffIcon();if(k==="lut")return lutIcon();if(k==="chip"||k==="seqchip")return chipIcon((CHIPMETA[type]&&CHIPMETA[type].name)||type);if(k==="gate")return gateIcon(type);return ioIcon(type);}
 
 function refreshPalette(){
   const pal=document.getElementById("palette");
@@ -966,7 +1134,8 @@ document.getElementById("clearBtn").onclick=()=>{
 function serializeCircuit(){
   return {
     app:"LogicLab", format:1, saved:new Date().toISOString(),
-    comps: comps.map(c=>({id:c.id,type:c.type,x:c.x,y:c.y,rot:c.rot||0,on:!!c.on,name:c.name||undefined,init:c.type==="LUT4"?(c.init||0):undefined})),
+    comps: comps.map(c=>({id:c.id,type:c.type,x:c.x,y:c.y,rot:c.rot||0,on:!!c.on,name:c.name||undefined,init:c.type==="LUT4"?(c.init||0):undefined,
+      mem:(c.type==="ROM8"||c.type==="RAM8")?(c.mem||[]).slice(0,16):undefined})),
     wires: wires.map(w=>({id:w.id,from:w.from,to:w.to,points:(w.points||[]).map(p=>({x:p.x,y:p.y}))})),
     nextId
   };
@@ -989,7 +1158,7 @@ function loadCircuit(obj){
   setPower(false);
   comps = obj.comps
     .filter(c=>DEFS[c.type])                       // ignore unknown component types
-    .map(c=>({id:c.id,type:c.type,x:c.x,y:c.y,rot:c.rot||0,on:!!c.on,name:c.name||undefined,init:(c.init||0),target:!!c.on,out:[],q:false,lastClk:false}));
+    .map(c=>({id:c.id,type:c.type,x:c.x,y:c.y,rot:c.rot||0,on:!!c.on,name:c.name||undefined,init:(c.init||0),target:!!c.on,out:[],q:false,lastClk:false,...defState(c.type,c)}));
   wires = obj.wires
     .filter(w=>w&&w.from&&w.to&&compById(w.from.c)&&compById(w.to.c))
     .map(w=>({id:w.id,from:w.from,to:w.to,points:(w.points||[]).map(p=>({x:p.x,y:p.y}))}));
@@ -1024,6 +1193,34 @@ document.getElementById("tlToggle").onclick=()=>{
   if(!collapsed) renderTiming();
 };
 document.getElementById("tlClear").onclick=()=>{ history=[]; if(powered) recordSample(); renderTiming(); };
+/* vertical resize of the timing panel (drag the grip strip up/down) */
+(function(){
+  const panel=document.getElementById("timing");
+  const handle=document.getElementById("tlResize");
+  const MIN=120;
+  let dragging=false, startY=0, startH=0;
+  handle.addEventListener("pointerdown",e=>{
+    if(panel.classList.contains("collapsed")) return;     // nothing to resize while collapsed
+    dragging=true; startY=e.clientY; startH=panel.getBoundingClientRect().height;
+    panel.style.transition="none"; document.body.style.userSelect="none";
+    handle.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  handle.addEventListener("pointermove",e=>{
+    if(!dragging) return;
+    const max=Math.max(MIN, window.innerHeight*0.8);
+    let h=startH+(startY-e.clientY);                       // drag up grows, drag down shrinks
+    h=Math.min(max, Math.max(MIN, h));
+    panel.style.setProperty("--tl-h", h+"px");
+  });
+  const stop=e=>{
+    if(!dragging) return; dragging=false;
+    panel.style.transition=""; document.body.style.userSelect="";
+    try{ handle.releasePointerCapture(e.pointerId); }catch(_){}
+    renderTiming();
+  };
+  handle.addEventListener("pointerup",stop);
+  handle.addEventListener("pointercancel",stop);
+})();
 /* Double-click action for a component. Triggered by manual click-timing in the
    mouseup handler — the native "dblclick" event is unreliable here because every
    mousedown rebuilds the SVG, so the two clicks never share a DOM target. */
@@ -1036,6 +1233,16 @@ function editComp(c){
       const parsed=parseHex16(v);
       if(parsed===null){ alert("Enter a 16-bit hex value such as 0x0FF0 (range 0x0000–0xFFFF)."); }
       else { c.init=parsed; evaluate(); render(); }
+    }
+    return;
+  }
+  if(c.type==="ROM8"||c.type==="RAM8"){
+    const label=c.type==="ROM8"?"ROM contents":"RAM initial contents";
+    const v=prompt(label+" : 16 bytes in hex, address 0 first (space or comma separated, e.g. 0A 1F 00 ...):", memToStr(c.mem));
+    if(v!==null){
+      const m=parseMem(v);
+      if(m===null){ alert("Enter up to 16 hex bytes in the range 00 to FF, separated by spaces or commas."); }
+      else { c.mem=m; evaluate(); render(); }
     }
     return;
   }
@@ -1054,7 +1261,7 @@ const DEFAULT_CIRCUIT = {
 };
 function loadDemo(){
   viewScale=1; viewX=0; viewY=0;
-  comps = DEFAULT_CIRCUIT.comps.map(c=>({id:c.id,type:c.type,x:c.x,y:c.y,rot:c.rot||0,on:!!c.on,target:!!c.on,init:(c.init||0),out:[],q:false,lastClk:false}));
+  comps = DEFAULT_CIRCUIT.comps.map(c=>({id:c.id,type:c.type,x:c.x,y:c.y,rot:c.rot||0,on:!!c.on,target:!!c.on,init:(c.init||0),out:[],q:false,lastClk:false,...defState(c.type,c)}));
   wires = DEFAULT_CIRCUIT.wires.map(w=>({id:w.id,from:{...w.from},to:{...w.to},points:(w.points||[]).map(p=>({x:p.x,y:p.y}))}));
   nextId = DEFAULT_CIRCUIT.nextId;
 }
